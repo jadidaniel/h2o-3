@@ -3914,4 +3914,7 @@ public class GBMTest extends TestUtil {
     }
   }
   
+  @Test
+  public void testResetThreshold(){
+  }
 }
