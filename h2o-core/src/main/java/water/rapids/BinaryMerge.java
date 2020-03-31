@@ -129,7 +129,7 @@ class BinaryMerge extends DTask<BinaryMerge> {
     long t0 = System.nanoTime();
 
     SingleThreadRadixOrder.OXHeader leftSortedOXHeader = DKV.getGet(getSortedOXHeaderKey(/*left=*/true, _leftSB._msb));
-    if (leftSortedOXHeader == null) {
+    if (leftSortedOXHeader == null) { // waste of time to loop through all possible MSB values.
       if( !_allRight ) { tryComplete(); return; }
       throw H2O.unimpl();  // TODO pass through _allRight and implement
     }
@@ -146,7 +146,7 @@ class BinaryMerge extends DTask<BinaryMerge> {
 
     // get left batches
     _leftKO.initKeyOrder(_leftSB._msb,/*left=*/true);
-    final long leftN = leftSortedOXHeader._numRows;
+    final long leftN = leftSortedOXHeader._numRows; // number of leftframe rows to fetch for leftMSB
     assert leftN >= 1;
 
     // get right batches
@@ -174,12 +174,13 @@ class BinaryMerge extends DTask<BinaryMerge> {
 
     // Find left and right MSB extents in terms of the key boundaries they represent
     // _riteSB._msb==-1 indicates that no right MSB should be looked at
-    final long leftMin = _leftSB.min();  // the first key possible in this bucket
-    final long leftMax = _leftSB.max();  // the last  key possible in this bucket
+    final long leftMin = _leftSB.min();  // the minimum possible key value in this bucket
+    final long leftMax = _leftSB.max();  // the maximum possible key value in this bucket
     // if _riteSB._msb==-1 then the values in riteMin and riteMax here are redundant and not used
-    final long riteMin = _riteSB._msb==-1 ? -1 : _riteSB.min();  // the first key possible in this bucket
-    final long riteMax = _riteSB._msb==-1 ? -1 : _riteSB.max();  // the last  key possible in this bucket
+    final long riteMin = _riteSB._msb==-1 ? -1 : _riteSB.min();  // the minimum possible key value in this bucket
+    final long riteMax = _riteSB._msb==-1 ? -1 : _riteSB.max();  // the maximum possible key value in this bucket
 
+    // _leftFrom and leftTo refers to the row indices to perform merging/search for each MSB value
     _leftFrom =   (_riteSB._msb==-1 || leftMin>=riteMin || (_allLeft && _riteSB._msb==0  )) ? -1    : bsearchLeft(riteMin, /*retLow*/true , leftN);
     long leftTo = (_riteSB._msb==-1 || leftMax<=riteMax || (_allLeft && _riteSB._msb==255)) ? leftN : bsearchLeft(riteMax, /*retLow*/false, leftN);
     // The (_allLeft && rightMSB==0) part is to include those keys in that
@@ -190,7 +191,7 @@ class BinaryMerge extends DTask<BinaryMerge> {
     // lowest right keys, because stitching assumes unique MSB/MSB pairs.
 
     long retSize = leftTo - _leftFrom - 1;   // since leftTo and leftFrom are 1 outside the extremes
-    assert retSize >= 0;
+    assert retSize >= 0; // retSize is number of rows to include in final merged frame
     if (retSize==0) { tryComplete(); return; } // nothing can match, even when allLeft
 
     _retBatchSize = 1048576;   // must set to be the same from RadixOrder.java
@@ -209,7 +210,7 @@ class BinaryMerge extends DTask<BinaryMerge> {
     // occur, they only happen for leftMSB 0 and 255, and will quickly resolve
     // to no match in the right bucket via bmerge
     t0 = System.nanoTime();
-    bmerge_r(_leftFrom, leftTo, -1, rightN);
+    bmerge_r(_leftFrom, leftTo, -1, rightN);  // search for match row in rite frame to left value
     _timings[1] += (System.nanoTime() - t0) / 1e9;
 
     if (_allLeft) {
@@ -369,15 +370,32 @@ class BinaryMerge extends DTask<BinaryMerge> {
     return(i==_leftSB._keySize);
   }
 
+  /***
+   * For a specific MSB, if we can find MSBs in the left frame and rite frame that contains values in the MSB range,
+   * we fill try to find match between the left frame and rite frame and include those rows in the final merged frame.
+   * If no match is found between the two frames but allLeft = true, we will go ahead and just include all the rows
+   * having the same MSB in the left frame into the final merged frame.
+   * 
+   * @param leftLowIn: left frame lowest row number minus 1
+   * @param leftUppIn: number of rows in left frame with specific MSB
+   * @param riteLowIn: rite frame lowest row number minus 1 with specific MSB
+   * @param riteUppIn: number of rows in rite frame with specific MSB
+   *                  
+   */
+  private void binaryMergeOneMSB(long leftLowIn, long leftUppIn, long riteLowIn, long riteUppIn) {
+    long leftLow = leftLowIn, leftUpp = leftUppIn, riteLow = riteLowIn, riteUpp = riteUppIn;
+    long tempLow, tempUpp;
+    
+  }
   private void bmerge_r(long lLowIn, long lUppIn, long rLowIn, long rUppIn) {
     // TODO: parallel each of the 256 bins
     long lLow = lLowIn, lUpp = lUppIn, rLow = rLowIn, rUpp = rUppIn;
     long mid, tmpLow, tmpUpp;
     // i.e. (lLow+lUpp)/2 but being robust to one day in the future someone
     // somewhere overflowing long; e.g. 32 exabytes of 1-column ints
-    long lr = lLow + (lUpp - lLow) / 2;
-    while (rLow < rUpp - 1) {
-      mid = rLow + (rUpp - rLow) / 2;
+    long lr = lLow + (lUpp - lLow) / 2; // pick middle row of leftframe to compare with right
+    while (rLow < rUpp - 1) { // for any given left frame key, search through all rite frame
+      mid = rLow + (rUpp - rLow) / 2; // look at middle of rite frame
       int cmp = keycmp(_leftKO._key, lr, _riteKO._key, mid);  // -1, 0 or 1, like strcmp
       if (cmp < 0) {
         rUpp = mid;
@@ -386,14 +404,14 @@ class BinaryMerge extends DTask<BinaryMerge> {
       } else { // rKey == lKey including NA == NA
         // branch mid to find start and end of this group in this column
         // TODO?: not if mult=first|last and col<ncol-1
-        tmpLow = mid;
+        tmpLow = mid; // row index into right frame 
         tmpUpp = mid;
-        while (tmpLow < rUpp - 1) {
+        while (tmpLow < rUpp - 1) { // see if mid to upper half produce more match
           mid = tmpLow + (rUpp - tmpLow) / 2;
           if (keycmp(_leftKO._key, lr, _riteKO._key, mid) == 0) tmpLow = mid;
           else rUpp = mid;
         }
-        while (rLow < tmpUpp - 1) {
+        while (rLow < tmpUpp - 1) { // see if rlow and mid (lower half) produce more match
           mid = rLow + (tmpUpp - rLow) / 2;
           if (keycmp(_leftKO._key, lr, _riteKO._key, mid) == 0) tmpUpp = mid;
           else rLow = mid;
@@ -413,9 +431,9 @@ class BinaryMerge extends DTask<BinaryMerge> {
     // TODO: if index stores attribute that it is unique then we don't need
     // this step. However, each of these while()s would run at most once in
     // that case, which may not be worth optimizing.
-    tmpLow = lr + 1;
+    tmpLow = lr + 1;  // look at next left row after one match between left/rite frames
     // TODO: these while's could be rolled up inside leftKeyEqual saving call overhead
-    while (tmpLow<lUpp && leftKeyEqual(_leftKO._key, tmpLow, lr)) tmpLow++;
+    while (tmpLow<lUpp && leftKeyEqual(_leftKO._key, tmpLow, lr)) tmpLow++; // find left duplicates
     lUpp = tmpLow;
     tmpUpp = lr - 1;
     while (tmpUpp>lLow && leftKeyEqual(_leftKO._key, tmpUpp, lr)) tmpUpp--;
@@ -424,22 +442,22 @@ class BinaryMerge extends DTask<BinaryMerge> {
     assert lUpp - lLow >= 2;
 
     // if value found, rLow and rUpp surround it, unlike standard binary search where rLow falls on it
-    long len = rUpp - rLow - 1;
+    long len = rUpp - rLow - 1; // number of rite frame rows to include in merged frame
     // TODO - we don't need loop here :)  Why does perNodeNumRightRowsToFetch increase so much?
     if (len > 0 || _allLeft) {
       long t0 = System.nanoTime();
       if (len > 1) _oneToManyMatch = true;
-      _numRowsInResult += Math.max(1,len) * (lUpp-lLow-1);   // 1 for NA row when _allLeft
+      _numRowsInResult += Math.max(1,len) * (lUpp-lLow-1);   // 1 for NA row when _allLeft, set final merged row number
       for (long j = lLow + 1; j < lUpp; j++) {   // usually iterates once only for j=lr, but more than once if there are dup keys in left table
         // may be a range of left dup'd join-col values, but we need to fetch
         // each one since the left non-join columns are likely not dup'd and
         // may be the reason for the cartesian join
         long t00 = System.nanoTime();
         // TODO could loop through batches rather than / and % wastefully
-        long globalRowNumber = _leftKO.at8order(j);
+        long globalRowNumber = _leftKO.at8order(j); // read left merge column global row number
         _timings[17] += (System.nanoTime() - t00)/1e9;
         t00 = System.nanoTime();
-        int chkIdx = _leftSB._vec.elem2ChunkIdx(globalRowNumber); //binary search in espc
+        int chkIdx = _leftSB._vec.elem2ChunkIdx(globalRowNumber); //locate left frame row chunk index
         _timings[15] += (System.nanoTime() - t00)/1e9;
         // the key is the same within this left dup range, but still need to fetch left non-join columns
         _leftKO._perNodeNumRowsToFetch[_leftSB._chunkNode[chkIdx]]++;
@@ -575,7 +593,6 @@ class BinaryMerge extends DTask<BinaryMerge> {
       _timings[4] += ((t1 = System.nanoTime()) - t0) / 1e9;
       t0 = t1;
       chunksGetRawRemoteRows(perNodeLeftRows, perNodeRightRows, grrrsLeft, grrrsRite); // need this one
-
       chunksPopulateRetFirst(batchSizeUUID, numColsInResult, numLeftCols, perNodeLeftLoc, grrrsLeft,
               perNodeRightLoc, grrrsRite, frameLikeChunks, frameLikeChunks4Strings, frameLikeChunksLongs);
       _timings[10] += ((t1 = System.nanoTime()) - t0) / 1e9;
@@ -667,7 +684,7 @@ class BinaryMerge extends DTask<BinaryMerge> {
           // Fetch the left rows and mark the contiguous from-ranges each left row should be recycled over
           // TODO: when single node, not needed
           // TODO could loop through batches rather than / and % wastefully
-          long row = _leftKO.at8order(leftLoc);
+          long row = _leftKO.at8order(leftLoc); // global row number of matched row in left frame
           int chkIdx = _leftSB._vec.elem2ChunkIdx(row); //binary search in espc
           int ni = _leftSB._chunkNode[chkIdx]; // node index
           long pnl = perNodeLeftLoc[ni]++;    // pnl = per node location
@@ -678,10 +695,10 @@ class BinaryMerge extends DTask<BinaryMerge> {
         if (prevf == f && prevl == l)
           continue;  // don't re-fetch the same matching rows (cartesian). We'll repeat them locally later.
         prevf = f; prevl = l;
-        for (int r=0; r<l; r++) {
+        for (int r=0; r<l; r++) { // locate the corresponding matching row in right frame
           long loc = f+r-1;  // -1 because these are 0-based where 0 means no-match and 1 refers to the first row
           // TODO: could take / and % outside loop in cases where it doesn't span a batch boundary
-          long row = _riteKO.at8order(loc);
+          long row = _riteKO.at8order(loc); // right frame global row number that matches left frame
           // find the owning node for the row, using local operations here
           int chkIdx = _riteSB._vec.elem2ChunkIdx(row); //binary search in espc
           int ni = _riteSB._chunkNode[chkIdx];
@@ -694,7 +711,7 @@ class BinaryMerge extends DTask<BinaryMerge> {
     // TODO assert that perNodeRite and Left are exactly equal to the number
     // expected and allocated.
     Arrays.fill(perNodeLeftLoc ,0); // clear for reuse below
-    Arrays.fill(perNodeRightLoc,0);
+    Arrays.fill(perNodeRightLoc,0); // denotes number of rows fetched 
   }
 
   private void chunksGetRawRemoteRows(final long perNodeLeftRows[][][], final long perNodeRightRows[][][], 

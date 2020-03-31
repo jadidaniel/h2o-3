@@ -136,7 +136,7 @@ public class AstMerge extends AstPrimitive {
         throw new IllegalArgumentException("all.x=TRUE and all.y=TRUE is not supported.  Choose one only.");
 
       boolean onlyLeftAllOff = (allLeft && !allRite) || !allRite;
-      int[][] id_maps = new int[ncols][];
+      int[][] id_maps = new int[ncols][]; // will contain enum levels of the not included frame mapped to combined enum levels of both left/rite frames
       for (int i = 0; i < ncols; i++) { // flip the frame orders for allRite
         Vec lv = onlyLeftAllOff ? l.vec(i) : r.vec(i);
         Vec rv = onlyLeftAllOff ? r.vec(i) : l.vec(i);

@@ -45,6 +45,9 @@ public class CategoricalWrappedVec extends WrappedVec {
     tmp.computeMap(from, to, false);
     return tmp;
   }
+  // computeMap will actually generate a new domain that includes the enum levels in both to and from with
+  // those of to forming the first levels and the rest taken from leftover from.  Hence, unless the enum levels
+  // of to and from and exactly the same, expect to obtain a domain vector longer than either to or from.
   public static int[] computeMap(String[] from, String[] to) {
     return makeTransientVec(from, to)._map;
   }
