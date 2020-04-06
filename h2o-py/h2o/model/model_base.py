@@ -32,6 +32,7 @@ class ModelBase(h2o_meta(Keyed)):
         self._xval_keys = None
         self._parms = {}  # internal, for object recycle
         self.parms = {}  # external
+        self.effective_parms = {}
         self._estimator_type = "unsupervised"
         self._future = False  # used by __repr__/show to query job state
         self._job = None  # used when _future is True
@@ -94,6 +95,21 @@ class ModelBase(h2o_meta(Keyed)):
                 params[p] = (self.parms[p].get("actual_value") or {}).get(params_to_select[p], None)
             else:
                 params[p] = self.parms[p]["actual_value"]
+        return params
+
+    @property
+    def effective_params(self):
+        """Dictionary of effective parameters of the model."""
+        params_to_select = {"model_id": "name",
+                            "response_column": "column_name",
+                            "training_frame": "name",
+                            "validation_frame": "name"}
+        params = {}
+        for p in self.effective_parms:
+            if p in params_to_select.keys():
+                params[p] = (self.effective_parms[p].get("actual_value") or {}).get(params_to_select[p], None)
+            else:
+                params[p] = self.effective_parms[p]["actual_value"]
         return params
 
 

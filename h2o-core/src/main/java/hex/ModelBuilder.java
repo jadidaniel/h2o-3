@@ -13,6 +13,7 @@ import water.udf.CFuncRef;
 import water.util.*;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.*;
 
@@ -244,6 +245,7 @@ abstract public class ModelBuilder<M extends Model<M,P,O>, P extends Model.Param
         Scope.enter();
         _parms.read_lock_frames(_job); // Fetch & read-lock input frames
         computeImpl();
+        computeEffectiveParameters();
         saveModelCheckpointIfConfigured();
       } finally {
         _parms.read_unlock_frames(_job);
@@ -271,6 +273,29 @@ abstract public class ModelBuilder<M extends Model<M,P,O>, P extends Model.Param
     }
 
     public abstract void computeImpl();
+    
+    public final void computeEffectiveParameters() {
+      M model = _result.get();
+      if (model != null) {
+        model._effective_parms = (P) model._parms.clone();
+        model.computeEffectiveParameters();
+        checkEffectiveParmsDoesNotContainAuto(model._effective_parms);
+      }
+    }
+  }
+
+  public void checkEffectiveParmsDoesNotContainAuto(Model.Parameters effectiveParameters){
+    try {
+      for (Field field : effectiveParameters.getClass().getFields()) {
+        Class type = field.getType();
+        Object value = field.get(effectiveParameters);
+        if (value != null){
+          assert(!"AUTO".equalsIgnoreCase(value.toString())) : "Found AUTO value in effective parameters: " + field.getName();
+        }
+      }
+    } catch (IllegalAccessException e) {
+      throw new RuntimeException("Error while checking params for auto values", e);
+    }
   }
 
   private void setFinalState() {

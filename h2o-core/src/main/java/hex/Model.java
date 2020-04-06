@@ -47,6 +47,7 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
         implements StreamWriter {
 
   public P _parms;   // TODO: move things around so that this can be protected
+  public P _effective_parms;
   public O _output;  // TODO: move things around so that this can be protected
   public String[] _warnings = new String[0];  // warning associated with model building
   public transient String[] _warningsP;     // warnings associated with prediction only (transient, not persisted)
@@ -915,12 +916,25 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
     super(selfKey);
     assert parms != null;
     _parms = parms;
+    _effective_parms = parms;
     _output = output;  // Output won't be set if we're assert output != null;
     if (_output != null)
       _output.startClock();
     _dist = isSupervised() && _output.nclasses() == 1 ? DistributionFactory.getDistribution(_parms) : null;
     Log.info("Starting model "+ selfKey);
   }
+
+  public void computeEffectiveParameters() {
+    if (_parms._fold_assignment == Parameters.FoldAssignmentScheme.AUTO)
+      _effective_parms._fold_assignment = null;
+    if (_parms._stopping_metric == ScoreKeeper.StoppingMetric.AUTO)
+      _effective_parms._stopping_metric = null;
+    if (_parms._distribution == DistributionFamily.AUTO)
+      _effective_parms._distribution = null;
+    if (_parms._categorical_encoding == Parameters.CategoricalEncodingScheme.AUTO)
+      _effective_parms._categorical_encoding = null;
+  }
+  
   /**
    * Deviance of given distribution function at predicted value f
    * @param w observation weight

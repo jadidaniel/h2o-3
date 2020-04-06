@@ -132,13 +132,15 @@ setMethod("h2o.keyof", signature(object = "Keyed"), function(object) {
 #' @slot algorithm A \code{character} string specifying the algorithm that were used to fit the model.
 #' @slot parameters A \code{list} containing the parameter settings that were used to fit the model that differ from the defaults.
 #' @slot allparameters A \code{list} containg all parameters used to fit the model.
+#' @slot parameters A \code{list} containing the effective parameter settings that were used to fit the model that differ from the defaults.
+#' @slot allparameters A \code{list} containg all effective parameters used to fit the model.
 #' @slot have_pojo A \code{logical} indicating whether export to POJO is supported
 #' @slot have_mojo A \code{logical} indicating whether export to MOJO is supported
 #' @slot model A \code{list} containing the characteristics of the model returned by the algorithm.
 #' @aliases H2OModel
 #' @export
 setClass("H2OModel",
-         representation(model_id="character", algorithm="character", parameters="list", allparameters="list", have_pojo="logical", have_mojo="logical", model="list"),
+         representation(model_id="character", algorithm="character", parameters="list", allparameters="list", effective_parameters="list", effective_allparameters="list", have_pojo="logical", have_mojo="logical", model="list"),
          prototype(model_id=NA_character_),
          contains=c("Keyed","VIRTUAL"))
 
@@ -503,6 +505,12 @@ setGeneric("getParms", function(object) { standardGeneric("getParms") })
 #' @rdname ModelAccessors
 #' @export
 setMethod("getParms", "H2OModel", function(object) { object@parameters })
+#' @rdname ModelAccessors
+#' @export
+setGeneric("getEffectiveParms", function(object) { standardGeneric("getEffectiveParms") })
+#' @rdname ModelAccessors
+#' @export
+setMethod("getEffectiveParms", "H2OModel", function(object) { object@effective_parameters })
 
 #' @rdname ModelAccessors
 #' @export

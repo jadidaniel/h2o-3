@@ -5,6 +5,7 @@ import hex.KeyValue;
 import hex.Model;
 import hex.genmodel.utils.DistributionFamily;
 import hex.tree.*;
+import hex.util.EffectiveParametersUtils;
 import water.DKV;
 import water.Key;
 import water.MRTask;
@@ -96,6 +97,16 @@ public class GBMModel extends SharedTreeModelWithContributions<GBMModel, GBMMode
 
   public GBMModel(Key<GBMModel> selfKey, GBMParameters parms, GBMOutput output) {
     super(selfKey,parms,output);
+  }
+
+  @Override
+  public void computeEffectiveParameters() {
+    super.computeEffectiveParameters();
+    EffectiveParametersUtils.initCategoricalEncoding(_parms, _effective_parms, _output._nclasses, Parameters.CategoricalEncodingScheme.Enum);
+    EffectiveParametersUtils.initStoppingMetric(_parms, _effective_parms, _output.isClassifier(), _output.isAutoencoder());
+    EffectiveParametersUtils.initDistribution(_parms, _effective_parms, _output._nclasses);
+    EffectiveParametersUtils.initFoldAssignment(_parms, _effective_parms);
+    EffectiveParametersUtils.initHistogramType(_parms, _effective_parms);
   }
 
   @Override

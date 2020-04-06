@@ -210,8 +210,11 @@ h2o.getModel <- function(model_id) {
   }
   parameters <- list()
   allparams  <- list()
-  lapply(json$parameters, function(param) {
-    if (!is.null(param$actual_value)) {
+  effective_parameters <- list()
+  effective_allparams <- list()
+
+  fill_pairs <- function(param, all=TRUE) {
+    if (!is.null(param$actual_value) && !is.null(param$name)) {
       name <- param$name
       value <- param$actual_value
       mapping <- .type.map[param$type,]
@@ -236,13 +239,37 @@ h2o.getModel <- function(model_id) {
       # Response column needs to be parsed
       if (name == "response_column")
         value <- value$column_name
-      allparams[[name]] <<- value
+        
+      if (all == TRUE) {
+        return(list(name, value))
+      }
+        
       # Store only user changed parameters into parameters
       # TODO: Should we use !isTrue(all.equal(param$default_value, param$actual_value)) instead?
-      if (is.null(param$default_value) || param$required || !identical(param$default_value, param$actual_value))
-        parameters[[name]] <<- value
+      if (is.null(param$default_value) || param$required || !identical(param$default_value, param$actual_value)){
+        return(list(name, value))
+      }
     }
-  })
+    return(NULL)
+  }
+    
+  # get name, value pairs
+  allparams_key_val = lapply(json$parameters, fill_pairs, all=TRUE)
+  effective_allparams_key_val = lapply(json$effective_parameters, fill_pairs, all=TRUE)
+  parameters_key_val = lapply(json$parameters, fill_pairs, all=FALSE)
+  effective_parameters_key_val = lapply(json$effective_parameters, fill_pairs, all=FALSE)
+    
+  # remove NULLs
+  allparams_key_val[sapply(allparams_key_val, is.null)] <- NULL
+  effective_allparams_key_val[sapply(effective_allparams_key_val, is.null)] <- NULL
+  parameters_key_val[sapply(parameters_key_val, is.null)] <- NULL
+  effective_parameters_key_val[sapply(effective_parameters_key_val, is.null)] <- NULL
+    
+  # fill allparams, parameters, effective_allparams, effective_parameters
+  for (param in allparams_key_val) {if (!any(is.na(param[1]))) allparams[unlist(param[1])] <- param[2]}
+  for (param in effective_allparams_key_val) {if (!any(is.na(param[1])))  effective_allparams[unlist(param[1])] <- param[2]}
+  for (param in parameters_key_val) {if (!any(is.na(param[1]))) parameters[unlist(param[1])] <- param[2]}
+  for (param in effective_parameters_key_val) {if (!any(is.na(param[1]))) effective_parameters[unlist(param[1])] <- param[2]}
 
   # Run model specific hooks
   model_fill_func <- paste0(".h2o.fill_", json$algo)
@@ -255,6 +282,9 @@ h2o.getModel <- function(model_id) {
 
   parameters$x <- json$output$names
   allparams$x  <- json$output$names
+  effective_parameters$x <- json$output$names
+  effective_allparams$x <- json$output$names  
+    
   if (!is.null(parameters$response_column))
   {
     parameters$y <- parameters$response_column
@@ -262,16 +292,29 @@ h2o.getModel <- function(model_id) {
     parameters$x <- setdiff(parameters$x, parameters$y)
     allparams$x <- setdiff(allparams$x, allparams$y)
   }
+  if (!is.null(effective_parameters$response_column))
+  {
+    effective_parameters$y <- effective_parameters$response_column
+    effective_allparams$y <- effective_allparams$response_column
+    effective_parameters$x <- setdiff(effective_parameters$x, effective_parameters$y)
+    effective_allparams$x <- setdiff(effective_allparams$x, effective_allparams$y)
+  }
   allparams$ignored_columns <- NULL
   allparams$response_column <- NULL
   parameters$ignored_columns <- NULL
   parameters$response_column <- NULL
+  effective_allparams$ignored_columns <- NULL
+  effective_allparams$response_column <- NULL
+  effective_parameters$ignored_columns <- NULL
+  effective_parameters$response_column <- NULL  
   if (identical("glm", json$algo) && allparams$HGLM) {
     .newH2OModel(Class         = Class,
                  model_id      = model_id,
                  algorithm     = json$algo,
                  parameters    = parameters,
                  allparameters = allparams,
+                 effective_parameters = effective_parameters,
+                 effective_allparameters = effective_allparams,
                  have_pojo     = FALSE,
                  have_mojo     = FALSE,
                  model         = model)
@@ -281,6 +324,8 @@ h2o.getModel <- function(model_id) {
                algorithm     = json$algo,
                parameters    = parameters,
                allparameters = allparams,
+               effective_parameters = effective_parameters,
+               effective_allparameters = effective_allparams,
                have_pojo     = json$have_pojo,
                have_mojo     = json$have_mojo,
                model         = model)

@@ -268,7 +268,7 @@ public class ModelParametersSchemaV3<P extends Model.Parameters, S extends Model
    * Write the parameters, including their metadata, into an AutoBuffer.  Used by
    * ModelBuilderSchema#writeJSON_impl and ModelSchemaV3#writeJSON_impl.
    */
-  public static AutoBuffer writeParametersJSON(AutoBuffer ab, ModelParametersSchemaV3 parameters, ModelParametersSchemaV3 default_parameters) {
+  public static AutoBuffer writeParametersJSON(AutoBuffer ab, ModelParametersSchemaV3 parameters, ModelParametersSchemaV3 default_parameters, String name) {
     String[] fields = parameters.fields();
 
     // Build ModelParameterSchemaV2 objects for each field, and the call writeJSON on the array
@@ -293,7 +293,7 @@ public class ModelParametersSchemaV3<P extends Model.Parameters, S extends Model
     if (additionalParameters != null) {
       metadata = ArrayUtils.append(metadata, additionalParameters);
     }
-    ab.putJSONA("parameters", metadata);
+    ab.putJSONA(name, metadata);
     return ab;
   }
 

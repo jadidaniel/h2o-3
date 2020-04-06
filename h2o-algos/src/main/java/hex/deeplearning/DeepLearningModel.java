@@ -4,6 +4,7 @@ import hex.*;
 import hex.genmodel.utils.DistributionFamily;
 import hex.quantile.Quantile;
 import hex.quantile.QuantileModel;
+import hex.util.EffectiveParametersUtils;
 import hex.util.LinearAlgebraUtils;
 import water.*;
 import water.codegen.CodeGenerator;
@@ -72,6 +73,15 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
     }
   } // DeepLearningModelOutput
 
+    @Override
+    public void computeEffectiveParameters() {
+      super.computeEffectiveParameters();
+      _effective_parms._distribution = _dist._family;
+      EffectiveParametersUtils.initFoldAssignment(_parms, _effective_parms);
+      EffectiveParametersUtils.initStoppingMetric(_parms, _effective_parms, _output.isClassifier(), isSupervised());
+      EffectiveParametersUtils.initCategoricalEncoding(_parms, _effective_parms, _output.nclasses(), Model.Parameters.CategoricalEncodingScheme.OneHotInternal);
+    }
+    
   void set_model_info(DeepLearningModelInfo mi) {
     assert(mi != null);
     model_info = mi;

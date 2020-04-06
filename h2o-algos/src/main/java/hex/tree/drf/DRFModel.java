@@ -2,6 +2,7 @@ package hex.tree.drf;
 
 import hex.tree.SharedTreeModel;
 import hex.tree.SharedTreeModelWithContributions;
+import hex.util.EffectiveParametersUtils;
 import water.Key;
 import water.fvec.NewChunk;
 import water.util.MathUtils;
@@ -28,7 +29,18 @@ public class DRFModel extends SharedTreeModelWithContributions<DRFModel, DRFMode
     public DRFOutput( DRF b) { super(b); }
   }
 
-  public DRFModel(Key<DRFModel> selfKey, DRFParameters parms, DRFOutput output ) { super(selfKey, parms, output); }
+  public DRFModel(Key<DRFModel> selfKey, DRFParameters parms, DRFOutput output ) {
+    super(selfKey, parms, output);
+  }
+
+  @Override
+  public void computeEffectiveParameters() {
+    super.computeEffectiveParameters();
+    EffectiveParametersUtils.initStoppingMetric(_parms, _effective_parms, _output.isClassifier(), _output.isAutoencoder());
+    EffectiveParametersUtils.initCategoricalEncoding(_parms, _effective_parms, _output.nclasses(), Parameters.CategoricalEncodingScheme.Enum);
+    EffectiveParametersUtils.initFoldAssignment(_parms, _effective_parms);
+    EffectiveParametersUtils.initHistogramType(_parms, _effective_parms);
+  }
 
   @Override
   protected ScoreContributionsTask getScoreContributionsTask(SharedTreeModel model) {
