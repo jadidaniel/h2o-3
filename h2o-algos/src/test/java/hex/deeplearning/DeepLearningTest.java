@@ -2625,6 +2625,73 @@ public class DeepLearningTest extends TestUtil {
     }
   }
 
+  @Test
+  @Ignore
+  public void testIsFeatureUsed() {
+    // FIXME: Find a way to test deep learning; it uses even the constant columns...
+    isFeatureUsedHelper(false, false);
+    isFeatureUsedHelper(true, false);
+    isFeatureUsedHelper(false, true);
+    isFeatureUsedHelper(true, true);
+  }
 
+  private void isFeatureUsedHelper(boolean ignoreConstCols, boolean multinomial) {
+    Scope.enter();
+    Vec target = Vec.makeRepSeq(100, 3);
+    if (multinomial) target = target.toCategoricalVec();
+    Vec zeros = Vec.makeCon(0d, 100);
+    Vec ones = Vec.makeCon(1e10d, 100);
+    Frame dummyFrame = new Frame(
+            new String[]{"a", "b", "c", "d", "e", "target"},
+            new Vec[]{zeros, zeros, zeros, zeros, target, target}
+    );
+    dummyFrame._key = Key.make("DummyFrame_testIsFeatureUsed");
+
+    Frame otherFrame = new Frame(
+            new String[]{"a", "b", "c", "d", "e", "target"},
+            new Vec[]{ones, ones, ones, ones, target, target}
+    );
+
+    Frame reference = null;
+    Frame prediction = null;
+    DeepLearningModel model = null;
+    try {
+      DKV.put(dummyFrame);
+      DeepLearningModel.DeepLearningParameters dl = new DeepLearningModel.DeepLearningParameters();
+      dl._train = dummyFrame._key;
+      dl._response_column = "target";
+      dl._seed = 1;
+      dl._ignore_const_cols = ignoreConstCols;
+
+      DeepLearning job = new DeepLearning(dl);
+      model = job.trainModel().get();
+
+      String lastUsedFeature = "";
+      int usedFeatures = 0;
+      for(String feature : model._output._names) {
+        if (model.isFeatureUsed(feature)) {
+          usedFeatures ++;
+          lastUsedFeature = feature;
+        }
+      }
+      assertEquals(1, usedFeatures);
+      assertEquals("e", lastUsedFeature);
+
+      reference = model.score(dummyFrame);
+      prediction = model.score(otherFrame);
+      for (int i = 0; i < reference.numRows(); i++) {
+        assertEquals(reference.vec(0).at(i), prediction.vec(0).at(i), 1e-10);
+      }
+    } finally {
+      dummyFrame.delete();
+      if (model != null) model.delete();
+      if (reference != null) reference.delete();
+      if (prediction != null) prediction.delete();
+      target.remove();
+      zeros.remove();
+      ones.remove();
+      Scope.exit();
+    }
+  }
 }
 

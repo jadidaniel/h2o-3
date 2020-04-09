@@ -202,18 +202,13 @@ public class NaiveBayesModel extends Model<NaiveBayesModel,NaiveBayesModel.Naive
      * independent to the response. (P(x|resp=A) = P(x|resp=B) =... ) (I think that in the real world being "numerically"
      * independent will be pretty rare)
      */
-
-    if (!_parms._ignore_const_cols) {
-      for (int response = 0; response < _output._pcond_raw[featureIdx].length; response++) {
-        double val = _output._pcond_raw[featureIdx][response][0];
-        for (double p : _output._pcond_raw[featureIdx][response]) {
-          if (val != p)
-            return true;
-        }
+    for (int response = 0; response < _output._pcond_raw[featureIdx].length; response++) {
+      double val = _output._pcond_raw[featureIdx][response][0];
+      for (double p : _output._pcond_raw[featureIdx][response]) {
+        if (val != p)
+          return true;
       }
-      return false;
-    } else {
-      return super.isFeatureUsed(featureIdx);
     }
+    return false;
   }
 }

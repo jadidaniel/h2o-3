@@ -139,24 +139,27 @@ public class NaiveBayesTest extends TestUtil {
 
   @Test
   public void testIsFeatureUsed() {
-    isFeatureUsedHelper(false);
-    isFeatureUsedHelper(true);
+    isFeatureUsedHelper(false, false);
+    isFeatureUsedHelper(true, false);
+    isFeatureUsedHelper(false, true);
+    isFeatureUsedHelper(true, true);
   }
 
-  private void isFeatureUsedHelper(boolean ignoreConstCols) {
+  private void isFeatureUsedHelper(boolean ignoreConstCols, boolean multinomial) {
     Scope.enter();
-    Vec target = Vec.makeRepSeq(100, 3).toCategoricalVec();
+    Vec target = Vec.makeRepSeq(100, 3);
+    if (multinomial) target = target.toCategoricalVec();
     Vec zeros = Vec.makeCon(0d, 100);
     Vec ones = Vec.makeCon(1, 100);
     Frame dummyFrame = new Frame(
             new String[]{"a", "b", "c", "d", "e", "target"},
-            new Vec[]{zeros, zeros, zeros, zeros, target, target}
+            new Vec[]{zeros, zeros, zeros, zeros, target, target.toCategoricalVec()}
     );
     dummyFrame._key = Key.make("DummyFrame_testIsFeatureUsed");
 
     Frame otherFrame = new Frame(
             new String[]{"a", "b", "c", "d", "e", "target"},
-            new Vec[]{ones, ones, ones, ones, target, target}
+            new Vec[]{ones, ones, ones, ones, target, target.toCategoricalVec()}
     );
 
     Frame reference = null;

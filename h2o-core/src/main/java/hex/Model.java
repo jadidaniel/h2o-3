@@ -32,6 +32,7 @@ import java.net.URI;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import static water.util.FrameUtils.categoricalEncoder;
 import static water.util.FrameUtils.cleanUp;
@@ -2825,5 +2826,17 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
 
   protected boolean isFeatureUsed(int featureIdx) {
     return true;
+  }
+
+  /**
+   * Returns features that are used during prediction. This might be a superset of the features that are actually used,
+   * but it should not be a subset.
+   * @return
+   */
+  public String[] getUsedFeatures() {
+    return Stream
+            .of(_output._names)
+            .filter(this::isFeatureUsed)
+            .toArray(String[]::new);
   }
 }

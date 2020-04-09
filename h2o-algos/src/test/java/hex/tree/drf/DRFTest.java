@@ -1761,15 +1761,18 @@ public class DRFTest extends TestUtil {
 
   @Test
   public void testIsFeatureUsed() {
-    isFeatureUsedHelper(false);
-    isFeatureUsedHelper(true);
+    isFeatureUsedHelper(false, false);
+    isFeatureUsedHelper(true, false);
+    isFeatureUsedHelper(false, true);
+    isFeatureUsedHelper(true, true);
   }
 
-  private void isFeatureUsedHelper(boolean ignoreConstCols) {
+  private void isFeatureUsedHelper(boolean ignoreConstCols, boolean multinomial) {
     Scope.enter();
     Vec target = Vec.makeRepSeq(100, 3);
+    if (multinomial) target = target.toCategoricalVec();
     Vec zeros = Vec.makeCon(0d, 100);
-    Vec ones = Vec.makeCon(1, 100);
+    Vec ones = Vec.makeCon(1e10d, 100);
     Frame dummyFrame = new Frame(
             new String[]{"a", "b", "c", "d", "e", "target"},
             new Vec[]{zeros, zeros, zeros, zeros, target, target}

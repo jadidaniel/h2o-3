@@ -1776,7 +1776,7 @@ public class GLMModel extends Model<GLMModel,GLMModel.GLMParameters,GLMModel.GLM
 
   @Override
   protected boolean isFeatureUsed(int featureIdx) {
-    if (featureIdx < _output._dinfo._catOffsets.length - 1) {
+    if (featureIdx < _output._dinfo._catOffsets.length - 1 && _output._column_types[featureIdx].equals("Enum")) {
       for (int i = _output._dinfo._catOffsets[featureIdx];
            i < _output._dinfo._catOffsets[featureIdx + 1];
            i++) {
