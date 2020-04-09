@@ -286,6 +286,9 @@ public abstract class ModelMojoReader<M extends MojoModel> {
     private final String _val;
     RawValue(String val) { _val = val; }
     @SuppressWarnings("unchecked")
+    // FIXME return value type and defValue type don't match, parsed result has different type
+    // e.g. when using new Long[0] as default value to obtain result of type Long[], parsed value is of type long[]
+    // when using new long[0] as default value to obtain result of type long[], parsed value is of type int[]
     <T> T parse(T defVal) { return (T) ParseUtils.tryParse(_val, defVal); }
     @Override
     public String toString() { return _val; }

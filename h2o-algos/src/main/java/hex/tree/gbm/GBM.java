@@ -15,8 +15,11 @@ import water.exceptions.H2OModelBuilderIllegalArgumentException;
 import water.fvec.*;
 import water.util.*;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Random;
+
+import static hex.util.LinearAlgebraUtils.toEigenArray;
 
 /** Gradient Boosted Trees
  *
@@ -93,6 +96,24 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
       if (_parms._monotone_constraints != null && _parms._monotone_constraints.length > 0 &&
               !(DistributionFamily.gaussian.equals(_parms._distribution) || DistributionFamily.bernoulli.equals(_parms._distribution))) {
         error("_monotone_constraints", "Monotone constraints are only supported for Gaussian and Bernoulli distributions, your distribution: " + _parms._distribution + ".");
+      }
+
+      if (_origTrain != null && _origTrain != _train) {
+        ArrayList<Double> projections = new ArrayList<>();
+        for (int i = 0; i < _origTrain.numCols(); i++) {
+          Vec currentCol = _origTrain.vec(i);
+          if (currentCol.isCategorical())
+          {
+            double[] actProjection = toEigenArray(currentCol);
+            for(int j = 0; j < actProjection.length; j++) {
+              projections.add(actProjection[j]);
+            }
+          }
+        }
+        double[] primitive_projections = new double[projections.size()];
+        for (int i = 0; i < projections.size(); i++)
+          primitive_projections[i] = projections.get(i);
+        _orig_projection_array = primitive_projections;
       }
     }
 

@@ -53,6 +53,7 @@ public class ParseUtils {
                 return Double.valueOf(input);
         }
 
+        // TODO why do we not expect primitive types as default values since arrays of primitive values are returned?
         if (defVal != null && (defVal.getClass().isArray())) {
             if (defVal instanceof Long[])
                 return parseArrayOfLongs(input);

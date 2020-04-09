@@ -646,6 +646,8 @@ public abstract class SharedTreeModel<
         return CategoricalEncoding.Binary;
       case EnumLimited:
         return CategoricalEncoding.EnumLimited;
+      case Eigen:
+        return CategoricalEncoding.Eigen;
       default:
         return null;
     }
@@ -660,11 +662,26 @@ public abstract class SharedTreeModel<
     sb.ip("public boolean isSupervised() { return true; }").nl();
     sb.ip("public int nfeatures() { return " + _output.nfeatures() + "; }").nl();
     sb.ip("public int nclasses() { return " + _output.nclasses() + "; }").nl();
+    sb.ip("public double[] getOrigProjectionArray() { return " + toJavaArray(_output._orig_projection_array, "double") + "; }").nl();
     if (encoding != CategoricalEncoding.AUTO) {
       sb.ip("public hex.genmodel.CategoricalEncoding getCategoricalEncoding() { return hex.genmodel.CategoricalEncoding." + 
               encoding.name() + "; }").nl();
     }
     return sb;
+  }
+  
+  String toJavaArray(double[] array, String type) {
+    String s = "new " + type + "[] {";
+    if (array == null) 
+      s += "0";
+    else         
+      for (int i = 0; i < array.length; i++) {
+        s += " " + array[i] ;
+        if (i < array.length - 1)
+          s += ",";
+      }
+    s += "}";
+    return s;
   }
 
   @Override protected void toJavaPredictBody(SBPrintStream body,

@@ -48,6 +48,17 @@ public enum CategoricalEncoding {
     public Map<Integer, CategoricalEncoder> createCategoricalEncoders(GenModel m, Map<String, Integer> columnMapping) {
       return new EnumLimitedEncoderDomainMapConstructor(m, columnMapping).create();
     }
+  },
+  Eigen {
+    @Override
+    public Map<String, Integer> createColumnMapping(GenModel m) {
+      return new EigenEncoderColumnMapper(m).create();
+    }
+
+    @Override
+    public Map<Integer, CategoricalEncoder> createCategoricalEncoders(GenModel m, Map<String, Integer> columnMapping) {
+      return new EigenEncoderDomainMapConstructor(m, columnMapping).create();
+    }
   };
 
   public abstract Map<String, Integer> createColumnMapping(GenModel m);
