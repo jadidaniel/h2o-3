@@ -210,7 +210,8 @@ class BinaryMerge extends DTask<BinaryMerge> {
     // occur, they only happen for leftMSB 0 and 255, and will quickly resolve
     // to no match in the right bucket via bmerge
     t0 = System.nanoTime();
-    bmerge_r(_leftFrom, leftTo, -1, rightN);  // search for match row in rite frame to left value
+    binaryMergeOneMSB(_leftFrom, leftTo, -1, rightN);
+  //  bmerge_r(_leftFrom, leftTo, -1, rightN);  // search for match row in rite frame to left value
     _timings[1] += (System.nanoTime() - t0) / 1e9;
 
     if (_allLeft) {
@@ -274,6 +275,47 @@ class BinaryMerge extends DTask<BinaryMerge> {
       for( int b = 0; b < nbatch; b++ )
         res[b] = MemoryManager.malloc8(b==nbatch-1 ? lastSize : batchSizeLong);
       return res;
+    }
+  }
+  
+  private int keycmp(byte xss[][], long xi, KeyOrder xKO, FFSB xSB, byte yss[][], long yi, KeyOrder yKO, FFSB ySB) {
+    byte xbatch[] = xss[(int)(xi / xKO._batchSize)];
+    byte ybatch[] = yss[(int)(yi / yKO._batchSize)];
+    int xoff = (int)(xi % xKO._batchSize) * xSB._keySize;
+    int yoff = (int)(yi % yKO._batchSize) * ySB._keySize;
+    long xval=0, yval=0;
+
+    // We avoid the NewChunk compression because we want finer grain
+    // compression than 1,2,4 or 8 bytes types.  In particular, a range just
+    // greater than 4bn can use 5 bytes rather than 8 bytes; a 38% RAM saving
+    // over the wire in that possibly common case.  Note this is tight and
+    // almost branch free.
+    int i=0;
+    while( i<_numJoinCols && xval==yval ) { // TODO: pass i in to start at a later key column, when known
+      int xlen = xSB._fieldSizes[i];
+      int ylen = ySB._fieldSizes[i];
+      xval = xbatch[xoff] & 0xFFL; while (xlen>1) { xval <<= 8; xval |= xbatch[++xoff] & 0xFFL; xlen--; } xoff++;
+      yval = ybatch[yoff] & 0xFFL; while (ylen>1) { yval <<= 8; yval |= ybatch[++yoff] & 0xFFL; ylen--; } yoff++;
+
+      xval = xval==0 ? Long.MIN_VALUE : updateVal(xval,xSB._base[i]);
+      yval = yval==0 ? Long.MIN_VALUE : updateVal(yval,ySB._base[i]);
+
+      i++;
+    }
+
+    // The magnitude of the difference is used for limiting staleness in a
+    // rolling join, capped at Integer.MAX|(MIN+1).  Roll's type is chosen to
+    // be int so staleness can't be requested over int's limit.
+    // Same return value as strcmp in C. <0 => xi<yi.
+    long diff = xval-yval;  // could overflow even in long; e.g. joining to a prevailing NA, or very large gaps O(2^62)
+
+    if (BigInteger.valueOf(xval).subtract(BigInteger.valueOf(yval)).bitLength() > 64)
+      Log.warn("Overflow in BinaryMerge.java");  // detects overflow
+
+    if (xval>yval) {        // careful not diff>0 here due to overflow
+      return( (diff<0 | diff>Integer.MAX_VALUE  ) ? Integer.MAX_VALUE   : (int)diff);
+    } else {
+      return( (diff>0 | diff<Integer.MIN_VALUE+1) ? Integer.MIN_VALUE+1 : (int)diff);
     }
   }
 
@@ -372,9 +414,18 @@ class BinaryMerge extends DTask<BinaryMerge> {
 
   /***
    * For a specific MSB, if we can find MSBs in the left frame and rite frame that contains values in the MSB range,
-   * we fill try to find match between the left frame and rite frame and include those rows in the final merged frame.
+   * we will try to find match between the left frame and rite frame and include those rows in the final merged frame.
    * If no match is found between the two frames but allLeft = true, we will go ahead and just include all the rows
    * having the same MSB in the left frame into the final merged frame.
+   * 
+   * If allLeft is true, we will always iterate over the leftFrame keys and use binary search over the rite frame keys.
+   * We will count all duplicate keys in the left and rite frames as well.  During the search process, we should be 
+   * able to shrink the range of rite frame keys to search over as we gain more knowledge over the relative key 
+   * sizes between the two frames and all keys are sorted already.
+   * 
+   * However, when allLeft is false, we will iterate over the frames that has the smallest number of keys instead. 
+   * Hence, in this case, we can search over either the left or rite frame depending on the number of rows to be 
+   * searched through.  
    * 
    * @param leftLowIn: left frame lowest row number minus 1
    * @param leftUppIn: number of rows in left frame with specific MSB
@@ -383,10 +434,104 @@ class BinaryMerge extends DTask<BinaryMerge> {
    *                  
    */
   private void binaryMergeOneMSB(long leftLowIn, long leftUppIn, long riteLowIn, long riteUppIn) {
-    long leftLow = leftLowIn, leftUpp = leftUppIn, riteLow = riteLowIn, riteUpp = riteUppIn;
-    long tempLow, tempUpp;
+    boolean leftFrameIterate = _allLeft?true:((leftUppIn-leftLowIn)>(riteUppIn-riteLowIn)?false:true);
+    long iterIndex = leftFrameIterate?leftLowIn < 0 ? 0 : leftLowIn:riteLowIn < 0 ? 0 : riteLowIn;
+    long iterUppIn = leftFrameIterate?leftUppIn:riteUppIn;
+    long binarySearchUppIn = leftFrameIterate?riteUppIn:leftUppIn;
+    long iterHigh, binarySearchLow, binarySearchHigh;  // temp variables to perform search
+    long[] midSearchInd = new long[3]; // store match row, riteLow, riteUpp
+    midSearchInd[1] = leftFrameIterate?riteLowIn:leftLowIn;
+    midSearchInd[2] = leftFrameIterate?riteUppIn:riteUppIn;
+    int iterLen=0, binarySearchLen=0;  // number of iterate Frame/binarySearch frame rows to be included to merged frame
     
+    while (iterIndex < iterUppIn) { // for each left row, find matches in the right frame using binary search
+      midSearchInd = bsearchRiteMatch(iterIndex, midSearchInd, leftFrameIterate);  // try to find match for leftFrame at leftIndex in riteFrame
+      // extend index to include/skip over duplicates in iterate frame
+      iterHigh = iterIndex+1;
+      while (iterHigh<iterUppIn && frameKeyEqual(leftFrameIterate?_leftKO._key:_riteKO._key, iterIndex, iterHigh,
+              leftFrameIterate?_leftKO:_riteKO, leftFrameIterate?_leftSB:_riteSB)) iterHigh++; // find iterate frame duplicates
+      iterLen = (int) (iterHigh-iterIndex); // number of iterate frame rows to be included
+
+      if (midSearchInd[0]==0) {  // match found in riteFrame, 
+        // find duplicates in binarysearch frame, could be lower or higher than midSearchInd[0]
+        binarySearchLow = midSearchInd[0] - 1;
+        while (binarySearchLow > 0 && frameKeyEqual(leftFrameIterate ? _riteKO._key : _leftKO._key, midSearchInd[0],
+                binarySearchLow, leftFrameIterate ? _riteKO : _leftKO, leftFrameIterate ? _riteSB : _leftSB))
+          binarySearchLow--;
+        binarySearchHigh = midSearchInd[0]+1;
+        while (binarySearchHigh < binarySearchUppIn && frameKeyEqual(leftFrameIterate ? _riteKO._key : _leftKO._key,
+                midSearchInd[0], binarySearchHigh, leftFrameIterate ? _riteKO : _leftKO, leftFrameIterate ? _riteSB : _leftSB))
+          binarySearchHigh++;
+        binarySearchLen = (int)(binarySearchHigh-binarySearchLow);
+        midSearchInd[1] = binarySearchHigh; // shrink binarysearch frame range
+      } else {  // no match, adjust binarySearch upper range, set all Len to 0
+        midSearchInd[2] = leftFrameIterate?riteUppIn:leftUppIn;
+        iterLen = 0;
+        binarySearchLen = 0;
+      }
+      // organize merged frame for each iteration over iterate frame
+      populate_ret1st_retLen(iterLen, binarySearchLen, iterIndex, midSearchInd, leftFrameIterate);
+      iterIndex = iterHigh; // next row index to iterate over
+    }
   }
+  
+  private void populate_ret1st_retLen(int iterLen, int binarySearchLen, long iterIndex, long[] midSearchInd, 
+                                      boolean leftFrameIterate) {
+    if (iterLen==0 && binarySearchLen==0) return; // no rows can be merged, quick exit
+    if (_allLeft && iterLen > 1) _oneToManyMatch=true;  // duplicate keys found in leftFrame
+    _numRowsInResult += Math.max(1,iterLen)*binarySearchLen;  // add contribution to final merged frame
+    long leftLow = leftFrameIterate?iterIndex:midSearchInd[0];
+    long leftHigh = leftFrameIterate?(iterIndex+iterLen):(midSearchInd[0]+binarySearchLen);
+    long rLow = leftFrameIterate?midSearchInd[0]:iterIndex;
+    // iterate over left frame and add rows to final merged frame
+    for (long leftInd = leftLow; leftInd < leftHigh; leftInd++) { // allocate _ret1st and _retlen according to # of left frame rows
+      long globalRowNumber = _leftKO.at8order(leftInd);
+      int chkIdx = _leftSB._vec.elem2ChunkIdx(globalRowNumber);// obtain chunk index of row of interest
+      _leftKO._perNodeNumRowsToFetch[_leftSB._chunkNode[chkIdx]]++;
+      long fLocationIndex = leftInd-(_leftFrom+1);
+      final int batchIndex = (int) fLocationIndex/_retBatchSize;
+      final int batchOffset = (int) fLocationIndex%_retBatchSize;
+      _ret1st[batchIndex][batchOffset] = rLow+1;  // 0 is to denote no match between left and rite frame
+      _retLen[batchIndex][batchOffset] = iterLen;
+    }
+    // fill in rite frame and add rows to final merged frame if appropriate
+    long leftLen = leftHigh-leftLow+1;
+    for (long riteInd = 0; riteInd < leftLen; riteInd++) {
+      long loc = rLow+riteInd;
+      long globalRowNumber = _riteKO.at8order(loc);
+      int chkIdx = _riteSB._vec.elem2ChunkIdx(globalRowNumber);
+      _riteKO._perNodeNumRowsToFetch[_riteSB._chunkNode[chkIdx]]++;
+    }
+  }
+
+  private boolean frameKeyEqual(byte x[][], long xi, long yi, KeyOrder fKO, FFSB fSB) {
+    byte xbatch[] = x[(int)(xi / fKO._batchSize)];
+    byte ybatch[] = x[(int)(yi / fKO._batchSize)];
+    int xoff = (int)(xi % fKO._batchSize) * fSB._keySize;
+    int yoff = (int)(yi % fKO._batchSize) * fSB._keySize;
+    int i=0;
+    while (i<fSB._keySize && xbatch[xoff++] == ybatch[yoff++]) i++;
+    return(i==fSB._keySize);
+  }
+  
+  private long[] bsearchRiteMatch(long iterIndex, long[] midSearchInd, boolean leftFIter) {
+    while (midSearchInd[1] < (midSearchInd[2]-1)) { // go through the appropriate range of rite frame to find match
+      midSearchInd[0] = midSearchInd[1]+(midSearchInd[2]-midSearchInd[1])/2;
+      int cmp = leftFIter?keycmp(_leftKO._key, iterIndex, _leftKO, _leftSB, _riteKO._key, midSearchInd[0], _riteKO, _riteSB):
+              keycmp(_riteKO._key, iterIndex, _riteKO, _riteSB, _leftKO._key, midSearchInd[0], _leftKO, _leftSB);// 0 equal, <0 smaller, >0 bigger
+      if (cmp < 0) { // iterate frame value lower than binarysearch value, shrink binarysearch frame index down to midRite
+        midSearchInd[2] = midSearchInd[0];
+      } else if (cmp > 0) { // iterate frame value higher than binarysearch value, move up binarysearch frame index
+        midSearchInd[1] = midSearchInd[0];
+      } else {  // iterate and binarysearch frame key match
+        return midSearchInd;
+      }      
+    }
+    midSearchInd[0] = -1;  // no match found
+    return midSearchInd;
+  }
+  
+  //*********  DO NOT DELETE *****************
   private void bmerge_r(long lLowIn, long lUppIn, long rLowIn, long rUppIn) {
     // TODO: parallel each of the 256 bins
     long lLow = lLowIn, lUpp = lUppIn, rLow = rLowIn, rUpp = rUppIn;
